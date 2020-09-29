@@ -41,7 +41,7 @@ V_secu_I = zeros(1,Nc); % the imaginary part of V_secu
 
 
 for m=1:Nc
-    V_secu(m)   = SECULAR(w,c(m));
+    V_secu(m)   = SECULAR_love(w,c(m));
     V_secu_R(m) = real(V_secu(m));
     V_secu_I(m) = imag(V_secu(m));
 end
@@ -144,26 +144,6 @@ end
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 function  lambda_d = Lambda_d(z,zj_1,v_j)     % j=1,2...N (14a)
 
     lambda_d = exp(-v_j*(z-zj_1));
@@ -176,7 +156,7 @@ function  lambda_u = Lambda_u(z,zj,v_j)       % j=1,2...N (14a)
 
 end
 
-function secular_w_c = SECULAR(w,c)     
+function secular_w_c = SECULAR_love(w,c)     
     % secular function vlaue at (w,c) 
     global N z_bottom  beta miu  Epsilon;
     % secular function at single frequency and single velocity
@@ -262,9 +242,9 @@ function [root_one,x_right]=findroot_1(w0,c_start,step)
     global c_love_max  Epsilon;
     
     %  Find the interval of root
-    F0 = imag(SECULAR(w0,c_start));
+    F0 = imag(SECULAR_love(w0,c_start));
     c_temp = c_start + step;
-    F1 = imag(SECULAR(w0,c_temp)); 
+    F1 = imag(SECULAR_love(w0,c_temp)); 
     
     while (F0/F1 > 0)
        
@@ -275,7 +255,7 @@ function [root_one,x_right]=findroot_1(w0,c_start,step)
         else
             c_temp = c_temp +step;
             F0 = F1;
-            F1 = imag(SECULAR(w0,c_temp));
+            F1 = imag(SECULAR_love(w0,c_temp));
 
         end
     end
@@ -283,7 +263,7 @@ function [root_one,x_right]=findroot_1(w0,c_start,step)
     % c_temp must less than B 
     if (c_temp >= c_love_max) % must > = ,if not ,may cause x1 = x2，the answer is Inf
         c_temp = c_love_max;
-        F1 = imag(SECULAR(w0,c_temp));
+        F1 = imag(SECULAR_love(w0,c_temp));
         if (F0/F1 > 0)  %Judge whether the interval has a solution
             root_one = [];
             x_right = [];
@@ -306,8 +286,8 @@ function [root_one,x_right]=findroot_1(w0,c_start,step)
         if (abs(x_temp-x2) > Epsilon)
             x1 = x2;
             x2 = x_temp;
-            F0 = imag(SECULAR(w0,x1)); 
-            F1 = imag(SECULAR(w0,x2)); 
+            F0 = imag(SECULAR_love(w0,x1)); 
+            F1 = imag(SECULAR_love(w0,x2)); 
         else
             break
         end
@@ -331,7 +311,7 @@ function c_begin = find_begin(w0)
   
     step = delta_samll_c;
     while(1)      % Infinite cycle    
-        F = imag(SECULAR(w0,c_temp)); 
+        F = imag(SECULAR_love(w0,c_temp)); 
         if abs(F) > 0.1
             break
         end
@@ -385,14 +365,14 @@ function root_all = findroot_all(w0)
              c_right = c_right + Epsilon*10;
          end
          if (c_right>=c_love_max)
-             if real(SECULAR(w0,c_temp)) < 0.3    % judge real part
+             if real(SECULAR_love(w0,c_temp)) < 0.3    % judge real part
                  root_all = [root_all,c_temp];  
              end
              
              return
          end
          c_start = c_right;
-         if real(SECULAR(w0,c_temp)) < 0.3    % judge real part
+         if real(SECULAR_love(w0,c_temp)) < 0.3    % judge real part
               root_all = [root_all,c_temp];
   
          end
@@ -414,14 +394,14 @@ function root_all = findroot_all(w0)
              c_right = c_right + Epsilon*10;
          end
          if (c_right>=c_love_max)
-             if real(SECULAR(w0,c_temp)) < 0.3    % judge real part
+             if real(SECULAR_love(w0,c_temp)) < 0.3    % judge real part
                  root_all = [root_all,c_temp];  
              end
              
              return
          end
          c_start = c_right;
-         if real(SECULAR(w0,c_temp)) < 0.3    % judge real part
+         if real(SECULAR_love(w0,c_temp)) < 0.3    % judge real part
               root_all = [root_all,c_temp];
   
          end
