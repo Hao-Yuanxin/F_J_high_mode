@@ -102,7 +102,21 @@ frequency   (1行，虽然有时候显示两行，但实际是一行，这里有
 velocity   （1行，与上面的frequency对应）
 
 
+Rayleigh_dispersion.m
+计算理论的Rayleigh波频散曲线。
+计算的形式和框架与Love波完全一样，所以基本上是在Love波的频散计算的基础上改的。
+！！！与Love波相比有一个很大的困难，基阶波形非常非常非常窄(10^-9数量级)。
+Chen Xiaofei(1993)的附录讲了这个问题，求得了基阶频散的高频近似下的显示表达式
 
+1.function rayleigh_equation_value = Rayleigh_equation(c)
+Rayleigh方程是关于cR（均匀半空间Rayleigh波速度）的隐式，这个函数是求c对应的瑞雷方程。
+当c=cR，Rayleigh方程等于0。
+2.function CR = getCR()
+弦截法求瑞雷方程的根，得到cR。
+3.function c_fund = c_fundamental(w)
+因为基阶的波形很窄，用隐式去搜索计算量很大，Chen Xiaofei（2013）提出了
+用高频近似的方法去计算近似的去计算基阶的频散。
+！！！！论文中的A9式是分数线的一部分，不是减号
 
 
 
