@@ -1,4 +1,7 @@
 clear;
+%   Author: 郝渊新 Hao Yuanxin 
+%   Company: IGG
+%   email: haoyuanxin19@mails.ucas.ac.cn
 %   This program calculates the dispersion curve of Love wave
 %   reference： Xiaofei Chen(1993)，A systematic and efficient method of 
 %   computing normal modes for multilayered half-space
@@ -31,7 +34,7 @@ f_all = 0.1:0.1:5;       % The range of frequency
 c=c_love_min:delta_c:c_love_max;      % love wave velocity
 
 
-%%  T = 1s      plot secular function ,c is  
+%%  T = 1s      plot secular function,  c is an independent variable
 % plot Love wave's secular function at T = 1s 
 w=2*pi*1;          %T =1s w=2*pi*f
 Nc = length(c);      %Nc length of c[];
@@ -62,14 +65,14 @@ hold off
 %%
  
 
-
+%{
 
 figure(2)
 file_name ='~/Subject/CBV_highmode/Forward/dispersion_curves/Love_dispersion_Chen.txt';
 
 plot_write_Love_dispersion(file_name);
 
-
+%}
 
                                                                                 
 
@@ -161,7 +164,7 @@ function secular_w_c = SECULAR_love(w,c)
     global N z_bottom  beta miu  Epsilon;
     % secular function at single frequency and single velocity
     E=zeros(2,2,N+1);      %3D array,3th dimension represents the number of layers
-    nu=zeros(1,N);       %  v,    (k^2-(w/beta)^2)^(1/2)
+    nu=zeros(1,N+1);       %  v,    (k^2-(w/beta)^2)^(1/2)
 
     RT_matrix=zeros(2,2,N-1); % Reflection transmission matrix  （17a)
     RT_N=zeros(2,1);          % (Td Rdu)T (17b)
@@ -260,7 +263,7 @@ function [root_one,x_right]=findroot_1(w0,c_start,step)
         end
     end
     x_right = c_temp;
-    % c_temp must less than B 
+    % c_temp must less than  c_love_max
     if (c_temp >= c_love_max) % must > = ,if not ,may cause x1 = x2，the answer is Inf
         c_temp = c_love_max;
         F1 = imag(SECULAR_love(w0,c_temp));
@@ -328,30 +331,7 @@ function root_all = findroot_all(w0)
     
     % first root
     step = delta_samll_c;
-    %{
-    [c_temp ,c_right] = findroot_1(w0,c_start,step); % root of imaginary
-    if (isempty(c_right))
-         return
-             
-    end  
-    if (abs(c_temp-c_right)< Epsilon *10)
-        c_right = c_right + Epsilon*10;
-    end
-    if (c_right>=c_love_max)
-         if real(SECULAR(w0,c_temp)) < 0.3    % judge real part
-             root_all = [root_all,c_temp];
-         end
 
-         return
-    end
-
-    
-    
-    if real(SECULAR(w0,c_temp)) < 0.3    % judge real part
-             root_all = [root_all,c_temp];
-  
-    end
-    %}
     m = 0;
      while(m <= 5 )
          m = m+1;
