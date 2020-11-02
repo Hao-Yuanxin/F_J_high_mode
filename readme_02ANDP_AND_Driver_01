@@ -1,0 +1,353 @@
+
+/home/steven/test/Code-FanXL/ANT-Code/01*
+测试FanXL的处理数据的脚本，其中有数据文件
+
+/home/steven/test/Code-FanXL/ANT-Code/02*
+ Fortran代码,包含串行和并行两个版本,
+ 参考Barmin 背景噪声数据处理算法(http://ciei.colorado.edu/Products/)
+
+
+./Code-FanXL/ANT-Code/02_ANDP/Sequential 串行
+执行./ANT-Code/02_ANDP/Sequential/TEST/目录下的Compile.sh
+1.cd ../SRC/AFTAN
+2.make
+ makefile
+ all: addition.mod
+ addition.mod 伪目标（这里没有显式的声明 .PHONY : all）
+ addition.mod: addition.f90
+	$(FC) -c $^
+ $^ ,自动化变量: 所有的依赖目标的集合。以空格分隔。如果在依赖目标中有多个重复的，那么这个变量会去除重复的依赖目标，只保留一份
+ fflags = -O -Wall -ffixed-line-length-none
+ FFLAGS = $(DBG) $(fflags)
+ FC = gfortran
+ DBG = -g
+ LDLIBS =  -lfftw3
+ FOBJS = driver.o swapn.o aftanpg.o aftanipg.o addition.o ftfilt.o fmax.o taper.o trigger.o     tapers.o tgauss.o mspline.o pred_cur.o misc.o phtovel.o
+
+ $(BIN) : $(FOBJS)
+	$(FC) $(FFLAGS) $(FOBJS) -o $(BIN) $(LDLIBS)
+ fortran 编译器选项 https://docs.oracle.com/cd/E19205-01/820-1206/aevcv/index.html
+ DBG = -g，Debug选项；-O[n]表示优化级别，-O就等于-O3(O是大写的O，不是0);-W[n]，显示错误信息，这里all应该是W4
+ -ffixed-line-length-none 不限语法的长度，f90默认一行不超过132
+  -lname ，链接库，这里链接 -lfftw3
+ $(FC) $(FFLAGS) $(FOBJS) -o $(BIN) $(LDLIBS)
+ 因为隐含规则，会自动的从.o文件推导出依赖的.f
+ install :: $(BIN)
+ 变量多加一个：变成静态的，只能使用前面已定义好了的变量，用于变量中的变量
+ clean把编译的.o和.mod文件都删了
+ cleanall执行了clean，并且删除了可执行文件$(BIN)
+3.make install
+ 将可执行文件AFTAN_PROG放在此目录下INST_DIR = /usr/local/bin
+4.make cleanall
+ 就剩下/usr/local/bin的可执行文件AFTAN_PROG
+5.cd ../AND_Driver
+ 进入AND_Driver
+6.和上面步骤一样，make cleanall ；make ；sudo make install； make cleanall
+ makefile
+ %.o: %.f90
+	$(FC) -c $^
+ 定义规则模式，从.f90编译出.o
+ 在INST_DIR = /usr/local/bin/下生成AND_Driver程序
+  
+ 配置输入文件参数
+ /Sequential/TEST/input.dat
+
+ 执行Run.py
+
+#####################################################################################################################
+全局变量                    描述                值                                               定义的位置
+SGL，                     单精度，          vlaue=4,                                     MODULE addition(AFTAN/addition.f90)
+DBL，                     双精度，          vlaue=8,                                     MODULE addition(AFTAN/addition.f90)
+type(sac_db) 包含 TYPE(event),ev;TYPE(station),st;TYPE(record),rec;INTEGER :: nev, nst  MODULE my_definition(AND_Driver/my_definition.f90)
+TYPE(station)        name 台站名, n_name 台网/台站名, lat,lon                             MODULE my_definition(AND_Driver/my_definition.f90)
+TYPE(event)    CHARACTER,name;INTEGER yy, mm, dd, h, m, jday;REAL(SGL) s,t0            MODULE my_definition(AND_Driver/my_definition.f90)
+TYPE(record) CHARACTER,name;CHARACTER,channel;REAL,t0;REAL,frac;REAL,dt;INTEGER,nrec   MODULE my_definition(AND_Driver/my_definition.f90)
+#  t0 是起点的epoth time(整数部分）frac 时间残差 t = t0+frac
+ 
+type(sachead) sac头文件，对照SAC手册      ##                                    module sac_io(AND_Driver/sac_io.f90)
+
+
+
+
+
+**********************************************************************************************
+
+
+
+
+
+
+
+
+
+##################################################
+##################################################
+AND_Driver 预备好的文件 events.lst stations.lst
+##################################################
+主程序 AND_Driver.f90 
+# 注意： 命令在Run.py中执行，os.system("AND_Driver %s"%(tarfolder)) # 参数就是tarfolder
+主程序开始：
+USE Main_Proc 调用了Main_Proc MODULE
+*********************************************************************************************
+第1部分:将SAC文件复制到目标文件夹下，并且将SAC中的数据记录的b归零(参考时间t0和记录开始的时间点t对齐，t=t0+frac，frac是时间残差）
+给数据结构体TYPE(sac_db) :: sdb赋值，并将其中的信息输出到文件DataRecord.lst
+
+n_tmp = COMMAND_ARGUMENT_COUNT()   # 命令参数的个数，正确的参数个数是一个
+CALL GET_COMMAND_ARGUMENT(1, tarfolder)  # 返回值tarfolder是第一个参数
+读文件'input.dat'里的参数  # 文件中的频率都是周期s，line5，line8
+CALL SYSTEM('rm -rf '//TRIM(tarfolder)//'/DATA')  #  // 是fortran的字符连接符；TRIM(str)，去掉str末尾的空格
+OPEN(UNIT=11,FILE='stations.lst',STATUS='OLD',ACTION='READ',IOSTAT=nerr) # 打开文件 stations.lst
+# stations.lst 里面有   台网名 台站名 经度 纬度
+通过文件的行数得到了台站数目nst
+OPEN(UNIT=12,FILE='events.lst',STATUS='OLD',ACTION='READ',IOSTAT=nerr)   # 打开文件 events.lst
+# 每一天就是一个事件，events.lst 存着每一天sac文件的绝对路径 eg：/run/media/fanxl/Data3/20190113/Data/2009/09/20090913_000000
+得到了事件数目nev
+ALLOCATE(sdb%st(nst), sdb%ev(nev), sdb%rec(nev,nst), STAT=nerr) # 给sdb开辟内存空间，包含了所有的台站,事件和台站*事件(/sdb%rec%name里保存sac绝对的路径）
+给sdb赋值：
+1.按行读取'stations.lst'，将台站的name，n_name,lon,lat赋值给sdb，并将台站总数赋值给sdb%nst
+2.循环事件，给sdb%ev赋值 
+  
+  按行读取 events.lst ，CALL split_string(evpath, '/', strArray, nstrArray)  #  MODULE string （string.f90)
+  # 输入 evpath ，分隔符 '/',输出字符串数组strArray, 字符串数组元素个数nstrArray
+  str_temp =  strArray(nstrArray)； 最后一个字符串是日期文件夹的名称    # line number 183 
+  通过str_temp给sdb%ev(iev)% yy，mm，dd，h，m，s 赋值
+  sdb%ev(iev)%jday=date2jday(sdb%ev(iev)%yy,sdb%ev(iev)%mm,sdb%ev(iev)%dd)得到julian day # MODULE date_time
+  sdb%ev(iev)%t0= htoepoch() 函数给t0赋值  # t0是参考epoch(1970/1/1/0/0/0）的时间，单位s     # MODULE date_time
+  sdb%ev(iev)%name = TRIM(str_temp) # 其中str_temp，eg：tarfolder/Data/2009/09/20090913_000000
+  新建事件路径CALL SYSTEM('mkdir -p '//TRIM(str_temp))  # -p 递归创建路径,并且路径已存在不报错
+3.在事件循环中，再循环台站给sdb%rec 赋值，初值为 0  # line number 210 注意没有SAC文件，也会给sdb%rec(iev,ist)%nrec和sdb%rec(iev, ist)%frac赋值
+  sdb%rec(iev,ist)%nrec = 0
+  sdb%rec(iev, ist)%frac = 0.0D0
+  CALL mk_one_rec(evpath, sdb, iev, ist, channel)     # MODULE Main_Proc
+  # mk_one_rec，若事件与台站的SAC存在，复制到tarfolder路径下，SAC左对齐(b=0),起点t(epoth time）分为两部分(t=t0+frac)
+4. sdb%nev = nev 
+CALL sacdb_to_asc(sdb, 'DataRecord.lst')    # MODULE date_time
+把sdb里的信息写到DataRecord.lst中，包括台站数，事件数，
+每一个台站+事件，如果无记录，写入NO DATA；如果有记录，写入文件名，年，儒略日，时，分，秒，frac，记录总长度(s)
+
+***************************************************************************************************************************
+第2部分     # line number 241
+
+
+
+
+
+
+
+
+
+
+
+###########################################################
+MODULE my_definition.f90 sac_io.f90
+*********************************************************************
+MODULE my_definition (my_definition.f90)
+定义了结构体 TYPE(station,event,record,sac_db)
+
+###############################################################################
+module sac_io (sac_io.f90)
+定义了头段 type :: sachead
+读取头段的子程序 subroutine sacio_readhead(filename, head, flag)
+读取SAC文件的子程序 subroutine sacio_readsac(filename, head, data, flag)
+
+！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
+读取sac头段的子程序
+subroutine sacio_readhead(filename, head, flag)
+Input: character(len=80) :: filename   filename to be read
+Output: type(sachead) :: head    integer   :: flag       Error code
+打开二进制filename文件，
+open(unit=50, file=filename, status='old', action='read', iostat=flag, &
+        &  access='stream', form='unformatted', convert='little_endian') 
+# convert='little_endian'，低字节序， access='stream',不加这个选项的话，会漏掉第一个delta，导致数据错位
+iostat=flag，其中flag>0,读取错误;等于0，正常；小于零，文件终了
+如果没正常打开，flag = 1，return
+read(50, iostat=flag) head  #把头段定义好了，一个命令就可以读取头文件
+如果没读进去，flag = 2，return
+if ((head%nvhdr>6) .or. (head%nvhdr<0)) then   # head%nvhdr,头段版本号不对的话，用大字节序打开
+open(unit=50, file=filename, status='old', action='read', iostat=flag, &
+    & access='stream', form='unformatted', convert='little_endian')
+如果还是没打开，flag = 6，return
+
+！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
+读取SAC文件的子程序
+subroutine sacio_readsac(filename, head, data, flag)
+Input: character(len=80) :: filename 
+Output:  type(sachead)，real；dimension(:):: data；integer  :: flag 
+初始化可变数组 data real, allocatable, dimension(:), intent(out) :: data
+先把subroutine sacio_readhead(filename, head, flag)重复了一遍，读了head
+allocate(data(1:head%npts), stat=flag)     # head%npts 数据点个数
+开辟内存失败，内存空间不足，flag = 3，return
+read(50, iostat=flag) data 
+#如果读数据失败，flag=4，return
+
+！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
+写sac的子程序
+subroutine sacio_writesac(filename, head, data, flag)
+Input:filename, head, data
+Output:flag
+以status='replace'的方式打开filename，打开失败，flag=1
+把头head和数据data写进去，写入失败flag=5
+
+！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
+截取一段时间的SAC数据
+头文件需要改相对起始时间b和相对终止时间e，数据文件需要截取
+b，文件的起始时间相对于参考时刻的秒数
+o，事件的发生时刻相对于参考时刻的秒数
+a，事件的初动时刻相对于参考时刻的秒数
+subroutine sacio_readsac_cut(filename, head, data, tmark, t0, t1, flag)
+也就是说，知道了相对某个点T（b,o,a,tn)的相对起始时间t0和相对终止时间t1，截取一段SAC数据。也要求选取的T的参考时间有值（即绝对时间t，参考时间T，t0，t1）
+Input: filename, tmark, t0, t1 =>  tmark -5 -> b;-3 -> o; -2 -> a; 0-9 -> tn;  t0 begin time is tmark对应的参考时刻 + t0 ; t1 end time is tmark + t1
+Output:head, data,  flag
+1.读头文件
+2.case(tmark)，对应的参考时刻赋值给 tref，如果case不是预设好的，flag=7，返回
+3.如果tref是空值（tref == -12345.），flag=8,返回
+
+n0 = floor((tref + t0 - head%b) / head%delta)   # t1对应的个数n
+n1 = floor((tref + t1 - head%b) / head%delta)   # t2对应的个数n 
+head%npts = n1 - n0 + 1  # npts需要改
+head%b = t0 + tref       # b需要改
+head%e = t1 + tref       # e需要改
+开辟需要大小的内存空间来存cut后的data 
+allocate(data(1:head%npts), stat=flag)
+然后找到起点，读data大小的文件即可
+read(50, rec=632+n0*4+1, iostat=flag) data   # rec是开始的字节数
+
+！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
+生成空的头文件
+subroutine sacio_nullhead(head)
+
+！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
+生成新的头文件，等时间间隔采样的
+subroutine sacio_newhead(head, dt, npts, b0)
+input dt, npts, b0   # 时间间隔 数据点，相对起始时间
+call sacio_nullhead(head) # 调用子程序，生成一个空头
+head%npts  = npts
+head%delta = dt
+head%b = b0
+head%o = 0.
+head%e = b0 + (npts-1)*head%delta
+head%iztype = 11    ! IO=11
+head%iftype = 1     ! ITIME=1
+head%leven = 1      ! TRUE=1
+
+#######################################################################################################
+MODULE string 
+SUBROUTINE delspace(str) split_string(InStr, delimiter, strArray, nsize)
+FUNCTION padzero(value, m, n)
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE delspace(str)  消除str的空格，所有的，前后中间都删除
+str = TRIM(ADJUSTL(str))      # ADJUSTL,去除字符的左空格，左对齐;TRIM,去除字符串的右空格
+do          #  str_result是空
+从str读取，读到str_temp中，这里会把空格作为分隔符，只读取空格部分的
+然后把str读到str_temp的部分变成空的（是空，不是空格，感觉好像差不多），把str_temp粘到str_result后边
+end do
+str_result就是去掉所有空格的结果
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE split_string(InStr, delimiter, strArray, nsize)
+# 给定分隔符（delimiter），切割字符串
+# input： InStr，delimiter；（eg：'/.',是'/'或者'.'）
+# output： strArray, nsize；# 输出字符串，输出字符串长度 
+# 其中strArray是字符串数组，每一个数组元素是一个字符串，字符串长度需要指定，数组可以是可变的长度
+# nsize表示分成多少段 ,其实是分隔符的个数+1  istart是分隔符后一个
+# ！strArray（n）可能是'',eg(开头是分隔符，结尾是分隔符，连续的分隔符） 
+！！strArray(ncount) = InStr(istart:i-1) ，当istrat>i-1，该命令会产生空（对应着连续的分隔符）
+
+！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！！
+FUNCTION padzero(value, m, n)
+将浮点型变量转化为字符串
+value ，浮点数； m 整数部分长度； n 小数部分长度；
+IF (value >= 0) THEN  
+# str_temp = '(Im.m,F0.n)'  # 定义输出格式,F0自动左对齐
+ELSE
+# str_temp = '(Im.m-1,F0.n)' 空了一位符号位
+WRITE(padzero,TRIM(str_temp)) INT(value), ABS(value-INT(value))
+
+########################################################################
+MODULE date_time
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+INTEGER FUNCTION date2jday(year, month, day) # 计算julian day 儒略日
+
+判断是不是闰年，是leap_day=1，不是leap_day=0
+计算前m-1个月的天数加上这个月的day，就是julian day
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+REAL(DBL) FUNCTION htoepoch(year, jday, hour, min, sec)
+# Linux时间 新纪元 epoch time 单位为秒
+# Epoch则是指定为1970年一月一日凌晨零点零分零秒，格林威治时间   
+yeardiff = year - 1970   # 与 epoch time 的差 ，yeardiff年+（jday-1）天+min分+sec秒
+vis = (yeardiff+1)/4+(yeardiff+369)/400-(yeardiff+69)/100 
+# 计算多少个闰年，四年闰年，从1968年结束开始算，1970年刚好过了1年(1969结束)
+# 四百年闰年 (yeardiff+369)/400，从1600年结束开始算，1970刚好过了369年(开始370年）
+# 一百年不闰 (yeardiff+69)/100 从1900年结束开始算
+htoepoch = (365*yeardiff+vis+jday-1)*86400.D0+(hour*60+min)*60.D0+sec  # 得到了新纪元时间
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE epochtoh(t, year, jday, hour, min, sec)  # 将新纪元时间转换为一般的年，julian日
+# 输入t，输出年月日时分秒
+iysupp = idate/365  # 相差的年数，先粗略的按照一年365天计算，实际的年会小于等于这个值
+idsupp = iysupp*365+(iysupp+1)/4+(iysupp+369)/400-(iysupp+69)/100 
+# 相差iysupp年对应的天数，有点像反演
+IF (idate < idsupp) iysupp = iysupp - 1 # 如果实际的天数，小于计算的天数，说明多算了一年，(差两年要1460年以上）
+得到了年之后，依次计算julian日，sec，min，hour 
+#  fsec = t-idate*86400.0D0 !其中D0表示10的0次方
+
+####################################################################################################
+MODULE Main_Proc 
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE correct_sac_file(fname, frac, nfrac, dt, t, nerr)
+input:fname
+output:frac, nfrac, dt, t, nerr   # frac:起点时刻的残差(eg:delta是1s，起点是10.3s，那么t是10，frac是0.3）
+#  nfrac:npts 数据点数 dt:delta t:起始点的纪元时间(second)，取整数个时间点 n*delta n为整数
+CALL sacio_readsac(fname, shd, seis_data, nerr)          # 读取SAC文件 shd 头, seis_data 数据记录, nerr 是否打开
+t = htoepoch()    # 得到第一个点的epoch time纪元时间
+frac1 = t - FLOOR(t)  # t的小数部分
+nf = INT(frac1/dt)    # frac1的整数个点
+frac = t - (FLOOR(t)+nf*dt)  # t的残差，超出的，且不足一个delta的部分
+t = FLOOR(t) + nf*dt       # 信号起点的epoch time 整数个时间点
+如果残差frac大于0.5dt，五入 t = t + dt ；frac = frac - dt
+# 让数据左对齐，即b=0，参考时间和起点时间重合
+CALL epochtoh(t,shd%nzyear,shd%nzjday,shd%nzhour,shd%nzmin,sec)  # 将epoch time转换为SAC头里的绝对时间，其中sec是小数
+通过sec得到头文件里的nzsec (s)和nzmsec (ms)，将b归零
+CALL sacio_writesac(fname, shd, seis_data, nerr)   # 把修改后的SAC重新写进去
+           
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE mk_one_rec(evpath, sdb, iev, ist, channel)
+# 对于一个事件一个台站，将SAC复制到tarfolder的路径下，将数据左对齐(b=0),并且给sdb%rec赋值
+str_temp = TRIM(evpath)//'/'//TRIM(sdb%st(ist)%n_name)//'.'//TRIM(channel)//'.SAC' # 单个SAC文件的绝对路径
+INQUIRE(FILE=str_temp, EXIST=alive) # 判断文件是否存在，若存在exist = 0
+将SAC文件复制到sdb%ev(iev)%name目录下，eg：tarfolder/Data/2009/09/20090913_000000
+CALL correct_sac_file(str_temp, frac, nfrac, dt, t0, nerr) # 将b归零， frac是时间残差，真正的起点t等于t0+frac
+然后将数据的长度，t的残差frac，dt，t0(数据起点对应的时刻的整数部分M*s+N*delta，MN为整数)，新生成的SAC文件的绝对路径，channel都写入sdb%rec(iev, ist)中
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+SUBROUTINE sacdb_to_asc(sdb, filename)
+将sacdb的信息，写成说明文档
+WRITE(17,"(A,I6,5X,A,I5)") 'Number of events:',sdb%nev,'Number of stations:',sdb%nst  #总的事件数，台站数
+循环事件，循化台站
+WRITE(17,"(A18,$)") str_temp  # 将sdb存着的SAC文件写到文档中  (A18,$) 表示不换行
+如果没有数据sdb%rec(iev,ist)%nrec == 0就说没有，如果有数据，就读取SAC的头，将文件名，年，儒略日，时，分，秒，frac，记录总长度(s)
+# 得到秒的时候，用了一个函数，padzero(value, m, n)，将浮点数转换为字符串
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+
+
+
+
