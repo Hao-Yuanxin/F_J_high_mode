@@ -1,0 +1,39 @@
+======================================================================================================================
+======================================================================================================================
+######################################
+AFTAN_PROG
+#########################
+主程序 driver.f
+	nargc = iargc()   # nargc是执行编译后的driver.o时的参数个数
+	if(nargc.ne.1) then
+ 		stop      # .ne. 是不等于，参数个数不等于1，程序停止
+
+open(unit=99, file='input.dat', status='old')  # status='old',打开已经存在的文件 跳过input.dat前17行
+      do k = 1, 17
+          read(99,"(a)") cmd     # format：a[n] a代表字符，n代表数目，什么都不加就是读入一行
+      end do
+
+INPUT PARAMETERS FOR AUTOMATIC FREQUENCY-TIME ANALYSIS,
+读入自动时频分析的参数，此时已经有了互相关结果
+call getarg(1,cmd)
+将命令的第一个参数赋给cmd,我还不知道命令的参数是什么，但知道是个./（TEST）下的文件名
+ read(10,'(a)',end=2) name   #end = 2，读到文件末尾时，跳到行代号是2的语句，
+这里是个循化，读完最后一行跳到end=2，2对应的命令是程序结束
+
+
+
+
+
+###############################################################
+ addition.f90
+
+ MODULE addition
+ 子程序
+ SUBROUTINE write_data(array1, nfout1, array2, nfout2, filename)
+ array1，原始测量矩阵， nfout1，原始测量矩阵的列
+ array2,clean 矩阵， nfout2，clean 矩阵的列
+ array1, nfout1, array2, nfout2, filename都是只读的INTENT(IN)
+
+
+
+

@@ -1,0 +1,100 @@
+###############################################################################
+AND_Drive
+
+part 02                # line number 241
+去仪器响应(去均值，去趋势，去仪器响应，输出sac是速度谱)，截取地震记录(t0,tlen,写在input.dat)，并且写入 tarfolder/DATA_VEL/年/月/日期下
+删除复制后的SAC文件夹(rm -rf '//TRIM(tarfolder)//'/DATA') # 将原始数据复制到DATA文件夹下，将处理后的SAC放入DATA_VEL下，删除DATA文件夹
+
+***********************************************************************************************************************
+循环事件，台站
+str_temp = 文件路径 tarfolder/DATA_VEL/年/月/日期/文件
+INQUIRE(FILE=str_temp, EXIST=alive)，判断文件是否存在，存在alive是T,CYCLE(等于C里面的continue，跳过此次循环)
+CALL remove_RESP(sdb, iev, ist, f1, f2, f3, f4)          # MODULE Main_Proc
+将tarfolder下的SAC复制到当前目录/temp.sac,对temp.sac去均值，去趋势，去仪器响应，输出速度 单位nm/s 
+
+CALL cut_data(sdb, iev, ist, t0, tlen) # 将temp.sac截取，写到cut.sac里，删除temp.sac
+# cut.sac 头文件的参考时间 2000年第一天 b = 0.0 这个头文件不知道搞什么鬼
+INQUIRE(FILE=str_temp, EXIST=alive)     # INQUIRE也可以判断目录是否存在，不存在新建一个
+把截取好的cut.sac写入tarfolder/DATA_VEL/年/月/日期/下 文件名:eg:BU.BDH.LHZ.SAC
+
+part 03  # line number 310
+
+*******************************************************************************************
+CALL SYSTEM('rm -rf sac.lst')  # part 03 会生成一个sac.lst，这里删除以前的sac.lst ！ rm 不存在的东西不会报错
+OPEN(UNIT=19, FILE='list_sac.tmp', STATUS='REPLACE', ACTION='WRITE') # 以写的方式打开 list_sac.tmp
+for year in `ls DATA_VEL` # 循环 DATA_VEL 文件夹下的年文件夹，赋值给year
+for month in  `ls DATA_VEL/$year`  # 循环月文件夹
+循环天文件夹
+循环每个文件，将文件名以追加的方式写入sac.lst    # ls ', TRIM(tarfolder)//'/DATA_VEL/$year/$month/$day/* >> sac.lst  这种*号表示方法，显示的带路径的文件  
+执行shell，执行上面的操作
+
+OPEN sac.lst    # line 335
+读取 sac.lst，也就是SAC文件的路径
+读SAC文件，nlen是记录点数，dt采样的时间间隔，frac时间的残差(不在时间的点上的部分,小于0.5*dt)
+CALL frac_filter4(f1, f2, f3, f4, npow, dt, nlen, frac, seis_data, nerr)    # MODULE Main_Proc
+
+
+
+
+#################################################################################################
+MODULE Main_Proc
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE remove_RESP(sdb, iev, ist, f1, f2, f3, f4)
+SAC文件去均值，去趋势，去仪器响应，输出的sac记录的是速度
+判断f1,f2,f3,f4是否满足要求(f4>f3>f2>f1>0)
+把SAC文件复制到tmp.sac
+将命令写入sac_resp_bp.txt
+对tmp.sac 去均值，去趋势，去仪器响应
+'transfer from polezero subtype PZfiles/'TRIM(sdb%st(ist)%n_name)//'..LHZ.PZ to vel freq ',f1, f2, f3, f4
+从SAC PZ 仪器响应文件里去仪器响应，vel表示去仪器响应得到速度，freq是去仪器响应时，带通滤波
+乘以10的9次方
+transfer命令，详情看https://seisman.github.io/SAC_Docs_zh/commands/transfer/
+WRITE(18, "(A)") 'w over' # w over 用内存里的文件覆盖磁盘里的文件
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE cut_data(sdb, iev, ist, t0, tlen)
+# t0 是开始时刻(相对文件时间) tlen是数据时间长度，单位s
+tend = t0 + tlen
+dt=delta N=nrec，数据长度 Nlen截取后的长度
+trb = sdb%rec(iev,ist)%t0 - sdb%ev(iev)%t0  # 数据起点的时间-文件时间(参考时间)
+tre = trb + (N-1)*dt           # 数据的终点(未截取的) - 文件时间(参考时间)
+判断选取的时间是否合适，不合适就返回
+合适的话,CALL sacio_readsac('tmp.sac', shd, seis_data, nerr)  # shd：头  seis_data：数据
+Ngap = INT((t0-trb)/dt+0.5) # 要跳过的点数,四舍五入
+shd%npts = Nlen  # 数据长度，因为写数据命令会根据npts决定数据长度
+参考时间:year:2000 jday:1 时分秒毫秒都是0 b = 0.0
+shd%user1 = REAL(sdb%rec(iev,ist)%frac)
+CALL sacio_writesac('cut.sac', shd, seis_data(Ngap+1:), nerr) # 将截取完的数据保存到cut.sac
+删除temp.sac文件
+# 总觉得头文件的参考时间和b值不太对
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE frac_filter4(f1, f2, f3, f4, npow, dt, n, frac, seis_data, nerr) #  n 是数据长度
+COMPLEX(DBL), ALLOCATABLE, DIMENSION(:) :: s, sf    # 数组长度为Nfft
+TYPE(C_PTR) :: plan      USE, INTRINSIC :: ISO_C_BINDING   从fortran中调用C的数据类型 fftw3.03中定义的
+Nfft = 2**MAX(INT(LOG(REAL(n))/LOG(2.0))+1, 13) # number of points for FFT 对应圆频率0到2pi 频率 0到1/dt ！为什么最小是2的13次方？ 
+# fft的长度是2的n次方 2^(ln(n)/ln(2))=n 取整会导致频率点数高于时间点数  Nfft/2 < n <Nfft
+fs = 1.0D0/(dt*Nfft)     # fs 频率间隔
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
