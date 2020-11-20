@@ -20,7 +20,7 @@ INQUIRE(FILE=str_temp, EXIST=alive)     # 这里的str_temp是日期路径，INQ
 把数据文件都处理完，删除CALL SYSTEM('rm -rf '//TRIM(tarfolder)//'/DATA') # 备份文件，卸磨杀驴
 
 part 03  # line number 310
-调整相位，带通滤波，反变化，写入 tarfolder/DATA/年/月/日期下
+调整相位，带通滤波，傅立叶反变化，写入 tarfolder/DATA/年/月/日期下
 *******************************************************************************************
 
 CALL SYSTEM('rm -rf sac.lst')  # part 03 会生成一个sac.lst，这里删除以前的sac.lst ！ rm 不存在的东西不会报错
@@ -28,7 +28,8 @@ OPEN(UNIT=19, FILE='list_sac.tmp', STATUS='REPLACE', ACTION='WRITE') # 以写的
 for year in `ls DATA_VEL` # 循环 DATA_VEL 文件夹下的年文件夹，赋值给year
 for month in  `ls DATA_VEL/$year`  # 循环月文件夹
 循环天文件夹
-循环每个文件，将文件名以追加的方式写入sac.lst    # ls ', TRIM(tarfolder)//'/DATA_VEL/$year/$month/$day/* >> sac.lst  这种*号表示方法，显示的带路径的文件  
+循环每个文件，将文件名以追加的方式写入sac.lst    # ls ', TRIM(tarfolder)//'/DATA_VEL/$year/$month/$day/* >> sac.lst  
+这种*号表示方法，显示的带路径的文件，适用于显示这种比较整齐的数据文件。如果目录下还有文件夹，显示的内容就比较乱
 执行shell，执行上面的操作
 
 OPEN sac.lst    # line 335
@@ -39,13 +40,63 @@ OPEN sac.lst    # line 335
  str_temp 赋值，是TRIM(tarfolder)//'/DATA/'/年/月/日/ # 天数路径 # 这个DATA文件夹里就是之前备份的原始文件，后来被卸磨杀驴了
  如果不存在str_temp，新建文件夹
  str_temp = TRIM(str_temp)//'/'//TRIM(strArray(nstrArray)) # 单个的文件
- CALL sacio_writesac(TRIM(str_temp), sac_head, seis_data, nerr) # 将 part03处理完的数据写到str_temp中 
+ CALL sacio_writesac(TRIM(str_temp), sac_head, seis_data, nerr) # 将 part03处理完的数据写到str_temp中,
+ 也就是 tarfolder/DATA/年/月/日期/
 end DO
 CALL SYSTEM('rm -rf list_sac.tmp sac.lst')  # 删除 临时文件
  
+
 part 04 # line 417
+1.正则化（滑动平均(也会滤波)或者onebit）
+2.谱白化，带阻滤波(可选),带通滤波
+3.将谱写入str_temp
+***********************************************************************************************
 
+tnorm：滑动平均 onebit：onebit notch: repressing the notch at 26s   
+写一个shell脚本：
+'for year in `ls ',TRIM(tarfolder)//'/DATA`' # 循环年，也就是ls tarfolder/DATA/
+  for month in `ls # 循环月
+    'for day in `ls ' # 循环julyer day
+       'ls ', TRIM(tarfolder)//'/DATA/$year/$month/$day/* >> sac.lst'  # 把sac每个文件的的绝对路径写入sac.lst中
+结束循环，执行shell   # line 445
 
+OPEN(UNIT=22, FILE='sac.lst', STATUS='OLD', ACTION='READ', IOSTAT=nerr) # 打开sac.lst
+DO # 循环每一个sac文件 line459
+ READ(22, "(A)", IOSTAT=nerr) str_temp 读取sac.lst中的每一行(绝对路径)
+ #用shell脚本执行sac命令
+ sac<<EOF 打开sac，'r ', TRIM(str_temp)读取sac文件
+ IF (tnorm) THEN  # 如果滑动平均，
+  WRITE(23,"('bp co ', F10.6, F10.6,' n 4 p 2')") fr1, fr2 
+  # 默认butterworth 拐角频率fr1, fr2 4极点 (零相位滤波器，双通)双通 !双通会在起跳之前有虚假的前驱信号
+  abs # 取绝对值
+  WRITE(23,"('smooth mean h ', I3)") nwt   # 对取绝对值，然后再平滑（滑动平均），nwt是半窗长度
+  WRITE(23,"(A)") 'w amp.avg'              # 写人到amp.avg
+  WRITE(23,"(A, A)") 'r ', TRIM(str_temp)  # 再次读入sac数据  
+  WRITE(23,"(A)") 'divf amp.avg'           # 除以amp.avg
+  写入到smooth.sac中，退出sac；EOF，sac命令结束
+ IF (onebit) THEN                          # 如果oneit
+  CALL sacio_readsac(TRIM(str_temp), sac_head, seis_data, nerr)  # 读sac的头和数据
+  WHERE (seis_data>0) seis_data = 1   ELSEWHERE (seis_data<0) seis_data = -1  # 数据大于零，置1；fortran where用法
+  CALL sacio_writesac('smooth.sac', sac_head, seis_data, nerr)   # 处理完的数据保存为smooth.sac  
+ end if      
+ CALL SYSTEM('rm -rf '//TRIM(str_temp)) #删除正则化之前的sac
+ CALL SYSTEM('rm -rf smooth.sac') #删除smooth.sac，其数据已经读在seis_data中了
+
+ CALL white_reject_filter4(f1,f2,f3,f4,dt,npow,nwf,n,notch,freqmin,seis_data,fftout,Nk,fs) # line 573 MODULE Main_Proc
+ # fft，谱白化(谱滑动平均)，带阻(可选),带通
+ # fft 正变化FFTW_BACKWARD，我改成FFTW_FORWARD,
+ # 注释掉!sf(1) = sf(1) / 2.0D0 ！注： pi到2pi要用复共轭补齐
+ CALL write_mydata(TRIM(str_temp), Nk, CMPLX(fftout), nerr)  # 将fftout以二进制写入文件str_temp中，先写入Nk，后写入数组
+ IF (ALLOCATED(seis_data)) DEALLOCATE(seis_data)
+ IF (ALLOCATED(fftout)) DEALLOCATE(fftout)  # 已经把0到pi的谱写入str_temp文件中了，将seis_data,ffout
+ CALL SYSTEM('rm -rf list_sac.tmp sac.lst') # list_sac.tmp sac.lst
+
+port 05 # line603
+***************************************************************************************
+intput.dat line 33 sbs, bs_N #是否做引导，引导重复的次数
+line 34 bs_type a_b-type of dispersion (a=[1-normal;2-phase matched filtering],b=[1-raw;2-clear])
+IF (sbs(1:1) == 'Y' .OR. sbs(1:1) == 'y') isbs = .TRUE. # 如果引导
+CALL cc_and_aftan(sdb, lag, tarfolder, isbs, bs_N, bs_type)  # 执行cc_and_aftan
 
 #################################################################################################
 MODULE Main_Proc
@@ -120,6 +171,58 @@ sf是频率序列
 pi = DATAN(1.0D0)*4.0D0   # DATAN = tan-1(反正切)  DATAN(1.0D0)=pi/4
 sf(i) = sf(i) * alpha(i)   # 滤波系数  alpha(i) f<f1或f>f4,alpha=0; f在(f1,f2)或（f3，f4)之间，会逐渐从0到1；
 npow，整数，加余弦窗的次数，越大，接近f2越陡
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE white_reject_filter4(f1,f2,f3,f4,dt,npow,nwf,n,notch,freqmin,seis_data,fftout,Nk,fs)
+# fft，谱白化(谱滑动平均)，带阻(可选),带通
+# !我把FFT正变换变成FFTW_FORWARD，pi到2pi要用复共轭补全 注释掉580行，sf(1) = sf(1) / 2.0D0 
+将seis_data赋给s，然后对s进行傅立叶变化，sf
+fs = 1.0D0/(dt*Nfft) # fs 频率间隔
+CALL whiten_spectra(f1, f4, fs, Nk, sf, nwf) # 谱白化 nwf,谱白化的半窗长
+IF (notch) CALL band_rejection(0.0350,0.0360,0.0390,0.0400,fs,Nk,sf,npow,freqmin)  #
+# 如果选择了帯阻滤波 CALL band_rejection,sf(i) = sf(i) * alpha(i),（f2，f3）时， alpha(i)=freqmin
+CALL band_pass(f1, f2, f3, f4, fs, Nk, npow, sf)
+
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE whiten_spectra(f1, f4, fs, Nk, sf, nwf)
+谱白化 nwf,谱白化的半窗长，这里的谱白化实际上是对谱做了滑动平均
+# sf(k) = sf(k) * sf_weight(k)   #最终的表达式
+sf_amp(k) = ABS(sf(k))  # 取谱的绝对值
+DO k = 1, Nk
+ 当f<f1或f>f4时， sf_weight(k)=0
+ 当f1<f<f4时，将点k为中心的nwf为半窗长的区域的sf_amp求和  ！这里需要加个约束，就是k要大于nwf，以免出现sf_amp(ijk)的索引为负，产生错误的结果
+ sf_weight(k) = 1.0D0 / (sum / (2.0D0*nwf+1.0D0))  # sum / (2.0D0*nwf+1.0D0)将sum平均到每个点上
+end do
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE band_rejection(f1, f2, f3, f4, fs, Nk, sf, npow, freqmin)
+# freqmin 带阻滤波的freqmin，f2, f3之间没有完全压制，保留的百分比是freqmin
+# sf(i) = sf(i) * alpha(i)  # 最终的表达式
+f<f1 or f>f4,alpha(i)=1;
+(f1, f2),(f3, f4)加余弦窗+freqmin
+(f2,f3）之间，alpha(i) = freqmin
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+
+
+MODULE my_data_io
+#################################################################################################
+SUBROUTINE write_mydata(filename, n, comdata, nerr)
+# 把comdata写到filename中，二进制无格式，WRITE(55) n !文本文件的话不能这样，需要指定格式
+先写入n #数据个数
+再写入连续的数据
+
+
+
+
+
+
+
+
+
 
 
 
