@@ -49,7 +49,7 @@ CALL SYSTEM('rm -rf list_sac.tmp sac.lst')  # 删除 临时文件
 part 04 # line 417
 1.正则化（滑动平均(也会滤波)或者onebit）
 2.谱白化，带阻滤波(可选),带通滤波
-3.将谱写入str_temp
+3.将谱写入str_temp  # TRIM(tarfolder)//'/DATA/$year/$month/$day/文件名
 ***********************************************************************************************
 
 tnorm：滑动平均 onebit：onebit notch: repressing the notch at 26s   
@@ -86,9 +86,10 @@ DO # 循环每一个sac文件 line459
  # fft，谱白化(谱滑动平均)，带阻(可选),带通
  # fft 正变化FFTW_BACKWARD，我改成FFTW_FORWARD,
  # 注释掉!sf(1) = sf(1) / 2.0D0 ！注： pi到2pi要用复共轭补齐
- CALL write_mydata(TRIM(str_temp), Nk, CMPLX(fftout), nerr)  # 将fftout以二进制写入文件str_temp中，先写入Nk，后写入数组
+ CALL write_mydata(TRIM(str_temp), Nk, CMPLX(fftout), nerr) # 将fftout以二进制写入文件str_temp中，先写入Nk，后写入数组(只有0到pi)
+ 此时str_temp的路径，也就是sdb%rec%name
  IF (ALLOCATED(seis_data)) DEALLOCATE(seis_data)
- IF (ALLOCATED(fftout)) DEALLOCATE(fftout)  # 已经把0到pi的谱写入str_temp文件中了，将seis_data,ffout
+ IF (ALLOCATED(fftout)) DEALLOCATE(fftout)  # 已经把0到pi的谱写入str_temp文件中了，将seis_data,ffout释放
  CALL SYSTEM('rm -rf list_sac.tmp sac.lst') # list_sac.tmp sac.lst
 
 port 05 # line603
@@ -96,7 +97,10 @@ port 05 # line603
 intput.dat line 33 sbs, bs_N #是否做引导，引导重复的次数
 line 34 bs_type a_b-type of dispersion (a=[1-normal;2-phase matched filtering],b=[1-raw;2-clear])
 IF (sbs(1:1) == 'Y' .OR. sbs(1:1) == 'y') isbs = .TRUE. # 如果引导
-CALL cc_and_aftan(sdb, lag, tarfolder, isbs, bs_N, bs_type)  # 执行cc_and_aftan
+CALL cc_and_aftan(sdb, lag, tarfolder, isbs, bs_N, bs_type)  # 执行cc_and_aftan MODULE Main_Proc
+# sad,sac_db,包含了event，station，record信息
+# lag,叠加的时间长度，isbs:是否引导(互相关，提频散)，bs_N:引导次数，bs_type:method
+
 
 #################################################################################################
 MODULE Main_Proc
@@ -131,7 +135,7 @@ shd%npts = Nlen  # 数据长度，因为写数据命令会根据npts决定数据
 shd%user1 = REAL(sdb%rec(iev,ist)%frac)
 CALL sacio_writesac('cut.sac', shd, seis_data(Ngap+1:), nerr) # 将截取完的数据保存到cut.sac
 删除temp.sac文件
-# 总觉得头文件的参考时间和b值不太对
+# 总觉得头文件的参考时间和b值不太对，不过已经存在了sdb里面了
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 SUBROUTINE frac_filter4(f1, f2, f3, f4, npow, dt, n, frac, seis_data, nerr) #  n 是数据长度
@@ -205,6 +209,43 @@ f<f1 or f>f4,alpha(i)=1;
 (f2,f3）之间，alpha(i) = freqmin
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE cc_and_aftan(sdb, lag, tarfolder, isbs, bs_N, bs_type)
+# sad,sac_db,包含了event，station，record信息
+# lag,叠加的时间长度，isbs:是否引导，bs_N:引导次数，bs_type:method
+
+IF (isbs) CALL SYSTEM('mkdir '//TRIM(tarfolder)//'/tempfolder') # 如果isbs是ture，新建tarfolder/tempfolder文件夹
+OPEN(UNIT=24, FILE='CCRecord.lst', STATUS='REPLACE', ACTION='WRITE') # 以REPLACE方式打开CCRecord.lst
+Do jsta1 = 1, nst-1 # 循环A station；A和B互相关，排列
+ DO jsta2 = (jsta1+1), nst #  循环B station
+   str_temp = TRIM(tarfolder)//'/FINAL/'//TRIM(sdb%st(jsta1)%n_name)//'/'//&
+                TRIM(sdb%st(jsta1)%n_name)//'_'//TRIM(sdb%st(jsta2)%n_name)//'.dat' #文件路径格式 /tar/FINAL/A/A_B.dat
+   nstack = 0
+   xcorr = 0.0
+   IF (isbs) CALL SYSTEM('rm -rf '//TRIM(tarfolder)//'/tempfolder/*') 如果引导，清空临时文件夹
+   DO iev = 1, nev # 循环事件
+     IF (check_data(sdb, jsta1, jsta2, iev)) THEN   # check 台站对在那一天是否有记录 MODULE Main_Proc
+  	dt = sdb%rec(iev,jsta1)%dt # 得到A在iev的delta
+        str_temp = sdb%rec(iev,jsta1)%name     # str_temp是A在iev的FFT !这里我有改动，正变化是forward
+	CALL read_mydata(TRIM(str_temp), nlen, fftdata1, nerr)  # 把A在iev的FFT数据读到了fftdata1里，数据长度返回给nlen(Nk)
+        同样的，将B在iev的数据读到了fftdata2
+        CALL multi_fft(DCMPLX(fftdata1), DCMPLX(fftdata2), nlen, dataout, nout)  # MODULE Main_Proc
+	# 对两个数组进行互相关，nlen可能不一样长(应该是一样的，看看有没有降采样统一dt)
+	# ！注释掉原来的，用复共轭补齐，并且傅立叶反变化要改成backward(原来forward)，反变化之后的乘以2也删除 line 1295 
+	% Keep only the lags we want and move negative lags before positive  #可以看matlab的xcorr.m的代码
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+LOGICAL FUNCTION check_data(sdb, jsta1, jsta2, iev)
+# check if there are FFT data for one station pair at one particular event
+# 通过判断sdb%rec(iev,jsta1)%name和sdb%rec(iev,jsta2)%name文件是否存在
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE multi_fft(sf1, sf2, nlen, dataout, nout)
+# out:dataout:互相关之后的时间序列, nout:互相关之后的长度
+nout = (nlen-1)*2   
+DO k = 1, nlen
+  sfcorr(k) = sf1(k)*DCONJG(sf2(k))  # 频率域是乘积(复共轭)
+
+！注释掉原来的，用复共轭补齐，并且傅立叶反变化要改成backward line1295
+傅立叶反变化，得到时间序列dataout
 
 
 
@@ -215,8 +256,10 @@ SUBROUTINE write_mydata(filename, n, comdata, nerr)
 先写入n #数据个数
 再写入连续的数据
 
-
-
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+SUBROUTINE read_mydata(filename, n, comdata, nerr)
+# out:n是数据长度，comdata是可变大小的复数数组
+直接把filename里的FFT单精度数据读了进去，因为是二进制的(无格式)
 
 
 
